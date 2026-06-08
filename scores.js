@@ -1,104 +1,68 @@
 // =====================
-// SENSOR.JS
+// SENSOR.JS v2
 // =====================
-
-// ---------- State ----------
 
 let tracking = false;
 
+// rotation tracking
+let lastAlpha = null;
+let lastBeta = null;
+let lastGamma = null;
+
+let rotAlpha = 0;
+let rotBeta = 0;
+let rotGamma = 0;
+
+// motion tracking
 let wasThrown = false;
 let inAir = false;
-let catchCandidate = false;
-
-let totalRotation = 0;
-let lastAlpha = null;
 
 let airFrames = 0;
 let stableFrames = 0;
 
 let catchPhase = 0;
+let catchCandidate = false;
 let catchTime = 0;
 
 let maxImpact = 0;
 
+// selected axis (auto)
+let activeAxis = null;
+let axisLocked = false;
+
+// debug
 let debugInterval = null;
 
-// ---------- Elements ----------
+// UI
+const readyBtn = document.getElementById("readyBtn");
+const statusEl = document.getElementById("status");
+const resultEl = document.getElementById("result");
+const debugEl = document.getElementById("debug");
 
-const readyBtn =
-    document.getElementById(
-        "readyBtn"
-    );
+// =====================
+// START
+// =====================
 
-const statusEl =
-    document.getElementById(
-        "status"
-    );
-
-const resultEl =
-    document.getElementById(
-        "result"
-    );
-
-const debugEl =
-    document.getElementById(
-        "debug"
-    );
-
-// ---------- Ready Button ----------
-
-readyBtn.addEventListener(
-    "click",
-    startSensors
-);
-
-// ---------- Permissions ----------
+readyBtn.addEventListener("click", startSensors);
 
 async function startSensors() {
 
     try {
 
         if (
-            selectedDevice ===
-                "iphone" &&
-            typeof DeviceMotionEvent !==
-                "undefined" &&
-            typeof DeviceMotionEvent
-                .requestPermission ===
-                "function"
+            typeof DeviceMotionEvent !== "undefined" &&
+            typeof DeviceMotionEvent.requestPermission === "function"
         ) {
-
-            const permission =
-                await DeviceMotionEvent
-                    .requestPermission();
-
-            if (
-                permission !==
-                "granted"
-            ) {
-
-                alert(
-                    "Sensor access denied."
-                );
-
-                return;
-            }
+            const permission = await DeviceMotionEvent.requestPermission();
+            if (permission !== "granted") return;
         }
 
         startChallenge();
 
-    }
-    catch (err) {
-
-        console.error(err);
-
-        alert(
-            "Could not access sensors."
-        );
+    } catch (e) {
+        console.log(e);
     }
 }
-
-// ---------- Start ----------
 
 function startChallenge() {
 
@@ -106,323 +70,242 @@ function startChallenge() {
 
     wasThrown = false;
     inAir = false;
-    catchCandidate = false;
-
-    totalRotation = 0;
-    lastAlpha = null;
 
     airFrames = 0;
     stableFrames = 0;
 
     catchPhase = 0;
-    catchTime = 0;
+    catchCandidate = false;
 
     maxImpact = 0;
 
-    readyBtn.classList.add(
-        "ready"
-    );
+    rotAlpha = rotBeta = rotGamma = 0;
 
-    statusEl.innerHTML =
-        "🟢 READY - THROW NOW";
+    lastAlpha = lastBeta = lastGamma = null;
 
-    resultEl.innerHTML =
-        "Waiting...";
+    axisLocked = false;
+    activeAxis = null;
+
+    readyBtn.classList.add("ready");
+
+    statusEl.innerHTML = "🟢 READY - THROW NOW!";
+    resultEl.innerHTML = "Waiting...";
 
     startDebug();
 }
 
-// ---------- Debug ----------
+// =====================
+// DEBUG
+// =====================
 
 function startDebug() {
 
-    if (debugInterval) {
+    if (debugInterval) clearInterval(debugInterval);
 
-        clearInterval(
-            debugInterval
-        );
-    }
+    debugInterval = setInterval(() => {
 
-    debugInterval =
-        setInterval(() => {
-
-            debugEl.innerHTML = `
-Thrown: ${wasThrown}<br>
-In Air: ${inAir}<br>
-Catch: ${catchCandidate}<br>
-Air Frames: ${airFrames}<br>
-Rotation: ${Math.round(totalRotation)}°<br>
+        debugEl.innerHTML = `
+Axis: ${activeAxis || "none"}<br>
+Alpha: ${Math.round(rotAlpha)}°<br>
+Beta: ${Math.round(rotBeta)}°<br>
+Gamma: ${Math.round(rotGamma)}°<br>
+Air: ${inAir}<br>
 Impact: ${maxImpact.toFixed(1)}<br>
 Phase: ${catchPhase}
-`;
+        `;
 
-        }, 100);
+    }, 100);
 }
 
-// ---------- Rotation ----------
+// =====================
+// ROTATION HANDLING
+// =====================
 
-window.addEventListener(
-    "deviceorientation",
-    (e) => {
+function addRotation(prev, curr) {
 
-        if (!tracking) return;
+    if (prev === null) return 0;
+
+    let diff = curr - prev;
+
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+
+    return Math.abs(diff);
+}
+
+window.addEventListener("deviceorientation", (e) => {
+
+    if (!tracking) return;
+
+    rotAlpha += addRotation(lastAlpha, e.alpha);
+    rotBeta  += addRotation(lastBeta, e.beta);
+    rotGamma += addRotation(lastGamma, e.gamma);
+
+    lastAlpha = e.alpha;
+    lastBeta = e.beta;
+    lastGamma = e.gamma;
+
+    // auto-select axis AFTER throw
+    if (wasThrown && !axisLocked) {
 
         if (
-            lastAlpha !== null
+            rotBeta > rotAlpha &&
+            rotBeta > rotGamma
         ) {
-
-            let diff =
-                e.alpha -
-                lastAlpha;
-
-            if (diff > 180)
-                diff -= 360;
-
-            if (diff < -180)
-                diff += 360;
-
-            totalRotation +=
-                Math.abs(diff);
+            activeAxis = "beta";
         }
 
-        lastAlpha =
-            e.alpha;
+        else if (
+            rotGamma > rotAlpha
+        ) {
+            activeAxis = "gamma";
+        }
+
+        else {
+            activeAxis = "alpha";
+        }
+
+        axisLocked = true;
     }
-);
+});
 
-// ---------- Motion ----------
+// =====================
+// MOTION
+// =====================
 
-window.addEventListener(
-    "devicemotion",
-    (e) => {
+window.addEventListener("devicemotion", (e) => {
 
-        if (!tracking)
-            return;
+    if (!tracking) return;
 
-        const a =
-            e.accelerationIncludingGravity;
+    const a = e.accelerationIncludingGravity;
+    if (!a) return;
 
-        if (!a)
-            return;
+    const magnitude = Math.sqrt(
+        a.x * a.x +
+        a.y * a.y +
+        a.z * a.z
+    );
 
-        const magnitude =
-            Math.sqrt(
-                a.x * a.x +
-                a.y * a.y +
-                a.z * a.z
-            );
+    const y = a.y || 0;
 
-        const y =
-            a.y || 0;
+    // track max impact
+    if (magnitude > maxImpact) {
+        maxImpact = magnitude;
+    }
 
-        // Max impact
+    // THROW detected
+    if (magnitude > 18) {
+        wasThrown = true;
+    }
 
-        if (
-            magnitude >
-            maxImpact
-        ) {
+    // AIR detection
+    if (wasThrown && magnitude < 4) {
+        inAir = true;
+        airFrames++;
+    }
 
-            maxImpact =
-                magnitude;
-        }
+    // possible catch
+    if (
+        wasThrown &&
+        inAir &&
+        airFrames > 3 &&
+        magnitude > 8 &&
+        !catchCandidate
+    ) {
+        catchCandidate = true;
+        catchTime = Date.now();
+    }
 
-        // Throw
+    // catch logic (hand movement pattern)
+    if (catchCandidate) {
 
-        if (
-            magnitude > 18
-        ) {
+        const elapsed = Date.now() - catchTime;
 
-            wasThrown =
-                true;
-        }
+        if (elapsed < 1000) {
 
-        // Airborne
-
-        if (
-            wasThrown &&
-            magnitude < 4
-        ) {
-
-            inAir = true;
-
-            airFrames++;
-        }
-
-        // Catch candidate
-
-        if (
-            wasThrown &&
-            inAir &&
-            airFrames > 3 &&
-            magnitude > 9 &&
-            !catchCandidate
-        ) {
-
-            catchCandidate =
-                true;
-
-            catchTime =
-                Date.now();
-        }
-
-        // Catch analysis
-
-        if (
-            catchCandidate
-        ) {
-
-            const elapsed =
-                Date.now() -
-                catchTime;
-
-            if (
-                elapsed < 1000
-            ) {
-
-                // Down movement
-
-                if (
-                    catchPhase === 0 &&
-                    y < -3
-                ) {
-
-                    catchPhase =
-                        1;
-                }
-
-                // Up movement
-
-                if (
-                    catchPhase === 1 &&
-                    y > 2
-                ) {
-
-                    catchPhase =
-                        2;
-                }
+            // down motion
+            if (catchPhase === 0 && y < -3) {
+                catchPhase = 1;
             }
 
-            // Stable hand
-
-            if (
-                magnitude < 12
-            ) {
-
-                stableFrames++;
-
-            } else {
-
-                stableFrames =
-                    0;
+            // up motion
+            if (catchPhase === 1 && y > 2) {
+                catchPhase = 2;
             }
+        }
 
-            // Finish
+        // stability check
+        if (magnitude < 12) {
+            stableFrames++;
+        } else {
+            stableFrames = 0;
+        }
 
-            if (
-                stableFrames >
-                    15 &&
-                catchPhase === 2
-            ) {
-
-                validateRun();
-            }
+        // finish condition
+        if (stableFrames > 15 && catchPhase === 2) {
+            validateRun();
         }
     }
-);
+});
 
-// ---------- Validation ----------
+// =====================
+// VALIDATION
+// =====================
 
 function validateRun() {
 
     tracking = false;
 
-    readyBtn.classList.remove(
-        "ready"
-    );
+    readyBtn.classList.remove("ready");
 
-    clearInterval(
-        debugInterval
-    );
+    clearInterval(debugInterval);
 
-    const flips =
-        Math.round(
-            totalRotation /
-            360
-        );
+    const rawRotation =
+        activeAxis === "beta"
+            ? rotBeta
+            : activeAxis === "gamma"
+                ? rotGamma
+                : rotAlpha;
 
-    // Suspicious impact
+    const flips = Math.round(rawRotation / 360);
 
-    if (
-        maxImpact > 35
-    ) {
+    // FAIL CONDITIONS
 
-        finishFail(
-            "Too much impact"
-        );
-
+    if (maxImpact > 35) {
+        finishFail("Too much impact");
         return;
     }
 
-    // No airtime
-
-    if (
-        airFrames < 3
-    ) {
-
-        finishFail(
-            "No airtime"
-        );
-
+    if (airFrames < 3) {
+        finishFail("No airtime");
         return;
     }
 
-    // No flips
-
-    if (
-        flips < 1
-    ) {
-
-        finishFail(
-            "No flips"
-        );
-
+    if (flips < 1) {
+        finishFail("No flips");
         return;
     }
 
-    finishSuccess(
-        flips
-    );
+    // SUCCESS
+    finishSuccess(flips);
 }
 
-// ---------- Success ----------
+// =====================
+// RESULT
+// =====================
 
-function finishSuccess(
-    flips
-) {
+function finishSuccess(flips) {
 
-    currentScore =
-        flips;
+    currentScore = flips;
 
-    resultEl.innerHTML =
-        `🏆 ${flips} FLIPS`;
+    resultEl.innerHTML = `🏆 ${flips} FLIPS`;
+    statusEl.innerHTML = "✅ SUCCESS";
 
-    statusEl.innerHTML =
-        "✅ SUCCESS";
-
-    saveScore(
-        flips
-    );
+    saveScore(flips);
 }
 
-// ---------- Fail ----------
+function finishFail(reason) {
 
-function finishFail(
-    reason
-) {
-
-    resultEl.innerHTML =
-        "❌ FAILED";
-
-    statusEl.innerHTML =
-        reason;
+    resultEl.innerHTML = "❌ FAILED";
+    statusEl.innerHTML = reason;
 }
