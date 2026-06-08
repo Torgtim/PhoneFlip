@@ -1,185 +1,428 @@
 // =====================
-// SCORES.JS
+// SENSOR.JS
 // =====================
 
-let currentScore = 0;
+// ---------- State ----------
 
-// ---------------------
-// Save Score
-// ---------------------
+let tracking = false;
 
-function saveScore(flips) {
+let wasThrown = false;
+let inAir = false;
+let catchCandidate = false;
 
-    let scores =
-        JSON.parse(
-            localStorage.getItem(
-                "phoneFlipScores"
-            )
-        ) || [];
+let totalRotation = 0;
+let lastAlpha = null;
 
-    scores.push({
+let airFrames = 0;
+let stableFrames = 0;
 
-        flips: flips,
+let catchPhase = 0;
+let catchTime = 0;
 
-        date: new Date()
-            .toLocaleString()
-    });
+let maxImpact = 0;
 
-    scores.sort(
-        (a, b) => b.flips - a.flips
+let debugInterval = null;
+
+// ---------- Elements ----------
+
+const readyBtn =
+    document.getElementById(
+        "readyBtn"
     );
 
-    scores = scores.slice(0, 10);
-
-    localStorage.setItem(
-        "phoneFlipScores",
-        JSON.stringify(scores)
-    );
-}
-
-// ---------------------
-// Show Scores
-// ---------------------
-
-function showScores() {
-
-    const container =
-        document.getElementById(
-            "scoreContainer"
-        );
-
-    let scores =
-        JSON.parse(
-            localStorage.getItem(
-                "phoneFlipScores"
-            )
-        ) || [];
-
-    if (scores.length === 0) {
-
-        container.innerHTML = `
-            <h3>🏆 High Scores</h3>
-            <p>No scores yet!</p>
-        `;
-
-        return;
-    }
-
-    let html =
-        "<h3>🏆 Top 10</h3>";
-
-    scores.forEach((score, index) => {
-
-        html += `
-            <div class="scoreEntry">
-
-                <strong>
-                    #${index + 1}
-                </strong>
-
-                <br>
-
-                ${score.flips} flips
-
-                <br>
-
-                <small>
-                    ${score.date}
-                </small>
-
-            </div>
-        `;
-    });
-
-    container.innerHTML = html;
-}
-
-// ---------------------
-// Clear Scores
-// (Optional)
-// ---------------------
-
-function clearScores() {
-
-    localStorage.removeItem(
-        "phoneFlipScores"
+const statusEl =
+    document.getElementById(
+        "status"
     );
 
-    showScores();
-}
+const resultEl =
+    document.getElementById(
+        "result"
+    );
 
-// ---------------------
-// Share Score
-// ---------------------
+const debugEl =
+    document.getElementById(
+        "debug"
+    );
 
-async function shareScore() {
+// ---------- Ready Button ----------
 
-    if (
-        !navigator.share
-    ) {
+readyBtn.addEventListener(
+    "click",
+    startSensors
+);
 
-        alert(
-            "Sharing is not supported on this device."
-        );
+// ---------- Permissions ----------
 
-        return;
-    }
+async function startSensors() {
 
     try {
 
-        await navigator.share({
+        if (
+            selectedDevice ===
+                "iphone" &&
+            typeof DeviceMotionEvent !==
+                "undefined" &&
+            typeof DeviceMotionEvent
+                .requestPermission ===
+                "function"
+        ) {
 
-            title:
-                "Phone Flip Challenge",
+            const permission =
+                await DeviceMotionEvent
+                    .requestPermission();
 
-            text:
-                `I got ${currentScore} flips in Phone Flip Challenge! 📱🏆`,
+            if (
+                permission !==
+                "granted"
+            ) {
 
-            url:
-                location.href
-        });
+                alert(
+                    "Sensor access denied."
+                );
+
+                return;
+            }
+        }
+
+        startChallenge();
 
     }
     catch (err) {
 
-        console.log(
-            "Share cancelled"
+        console.error(err);
+
+        alert(
+            "Could not access sensors."
         );
     }
 }
 
-// ---------------------
-// Button Events
-// ---------------------
+// ---------- Start ----------
+
+function startChallenge() {
+
+    tracking = true;
+
+    wasThrown = false;
+    inAir = false;
+    catchCandidate = false;
+
+    totalRotation = 0;
+    lastAlpha = null;
+
+    airFrames = 0;
+    stableFrames = 0;
+
+    catchPhase = 0;
+    catchTime = 0;
+
+    maxImpact = 0;
+
+    readyBtn.classList.add(
+        "ready"
+    );
+
+    statusEl.innerHTML =
+        "🟢 READY - THROW NOW";
+
+    resultEl.innerHTML =
+        "Waiting...";
+
+    startDebug();
+}
+
+// ---------- Debug ----------
+
+function startDebug() {
+
+    if (debugInterval) {
+
+        clearInterval(
+            debugInterval
+        );
+    }
+
+    debugInterval =
+        setInterval(() => {
+
+            debugEl.innerHTML = `
+Thrown: ${wasThrown}<br>
+In Air: ${inAir}<br>
+Catch: ${catchCandidate}<br>
+Air Frames: ${airFrames}<br>
+Rotation: ${Math.round(totalRotation)}°<br>
+Impact: ${maxImpact.toFixed(1)}<br>
+Phase: ${catchPhase}
+`;
+
+        }, 100);
+}
+
+// ---------- Rotation ----------
 
 window.addEventListener(
-    "load",
-    () => {
+    "deviceorientation",
+    (e) => {
 
-        const scoreBtn =
-            document.getElementById(
-                "scoreBtn"
-            );
+        if (!tracking) return;
 
-        const shareBtn =
-            document.getElementById(
-                "shareBtn"
-            );
+        if (
+            lastAlpha !== null
+        ) {
 
-        if (scoreBtn) {
+            let diff =
+                e.alpha -
+                lastAlpha;
 
-            scoreBtn.addEventListener(
-                "click",
-                showScores
-            );
+            if (diff > 180)
+                diff -= 360;
+
+            if (diff < -180)
+                diff += 360;
+
+            totalRotation +=
+                Math.abs(diff);
         }
 
-        if (shareBtn) {
+        lastAlpha =
+            e.alpha;
+    }
+);
 
-            shareBtn.addEventListener(
-                "click",
-                shareScore
+// ---------- Motion ----------
+
+window.addEventListener(
+    "devicemotion",
+    (e) => {
+
+        if (!tracking)
+            return;
+
+        const a =
+            e.accelerationIncludingGravity;
+
+        if (!a)
+            return;
+
+        const magnitude =
+            Math.sqrt(
+                a.x * a.x +
+                a.y * a.y +
+                a.z * a.z
             );
+
+        const y =
+            a.y || 0;
+
+        // Max impact
+
+        if (
+            magnitude >
+            maxImpact
+        ) {
+
+            maxImpact =
+                magnitude;
+        }
+
+        // Throw
+
+        if (
+            magnitude > 18
+        ) {
+
+            wasThrown =
+                true;
+        }
+
+        // Airborne
+
+        if (
+            wasThrown &&
+            magnitude < 4
+        ) {
+
+            inAir = true;
+
+            airFrames++;
+        }
+
+        // Catch candidate
+
+        if (
+            wasThrown &&
+            inAir &&
+            airFrames > 3 &&
+            magnitude > 9 &&
+            !catchCandidate
+        ) {
+
+            catchCandidate =
+                true;
+
+            catchTime =
+                Date.now();
+        }
+
+        // Catch analysis
+
+        if (
+            catchCandidate
+        ) {
+
+            const elapsed =
+                Date.now() -
+                catchTime;
+
+            if (
+                elapsed < 1000
+            ) {
+
+                // Down movement
+
+                if (
+                    catchPhase === 0 &&
+                    y < -3
+                ) {
+
+                    catchPhase =
+                        1;
+                }
+
+                // Up movement
+
+                if (
+                    catchPhase === 1 &&
+                    y > 2
+                ) {
+
+                    catchPhase =
+                        2;
+                }
+            }
+
+            // Stable hand
+
+            if (
+                magnitude < 12
+            ) {
+
+                stableFrames++;
+
+            } else {
+
+                stableFrames =
+                    0;
+            }
+
+            // Finish
+
+            if (
+                stableFrames >
+                    15 &&
+                catchPhase === 2
+            ) {
+
+                validateRun();
+            }
         }
     }
 );
+
+// ---------- Validation ----------
+
+function validateRun() {
+
+    tracking = false;
+
+    readyBtn.classList.remove(
+        "ready"
+    );
+
+    clearInterval(
+        debugInterval
+    );
+
+    const flips =
+        Math.round(
+            totalRotation /
+            360
+        );
+
+    // Suspicious impact
+
+    if (
+        maxImpact > 35
+    ) {
+
+        finishFail(
+            "Too much impact"
+        );
+
+        return;
+    }
+
+    // No airtime
+
+    if (
+        airFrames < 3
+    ) {
+
+        finishFail(
+            "No airtime"
+        );
+
+        return;
+    }
+
+    // No flips
+
+    if (
+        flips < 1
+    ) {
+
+        finishFail(
+            "No flips"
+        );
+
+        return;
+    }
+
+    finishSuccess(
+        flips
+    );
+}
+
+// ---------- Success ----------
+
+function finishSuccess(
+    flips
+) {
+
+    currentScore =
+        flips;
+
+    resultEl.innerHTML =
+        `🏆 ${flips} FLIPS`;
+
+    statusEl.innerHTML =
+        "✅ SUCCESS";
+
+    saveScore(
+        flips
+    );
+}
+
+// ---------- Fail ----------
+
+function finishFail(
+    reason
+) {
+
+    resultEl.innerHTML =
+        "❌ FAILED";
+
+    statusEl.innerHTML =
+        reason;
+}
