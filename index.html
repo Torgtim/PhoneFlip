@@ -1,36 +1,119 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Phone Flip Challenge</title>
-    <link rel="stylesheet" href="style.css">
+
+<meta charset="UTF-8">
+
+<meta
+    name="viewport"
+    content="width=device-width,
+             initial-scale=1.0,
+             maximum-scale=1.0,
+             user-scalable=no">
+
+<title>Phone Flip Challenge</title>
+
+<link rel="stylesheet" href="style.css">
+
 </head>
 <body>
 
+<div id="app">
+
     <h1>📱 Phone Flip Challenge</h1>
 
-    <button id="readyBtn">FLIP READY</button>
+    <div id="deviceBox">
 
-    <div id="status">
-        Press FLIP READY
+        <h2>Select Device</h2>
+
+        <button id="iphoneBtn">
+            🍎 iPhone
+        </button>
+
+        <button id="androidBtn">
+            🤖 Android
+        </button>
+
     </div>
 
-    <div id="result">
-        0 Flips
+    <div id="gameBox" class="hidden">
+
+        <button id="readyBtn">
+            FLIP READY
+        </button>
+
+        <div id="status">
+            Press FLIP READY
+        </div>
+
+        <div id="result">
+            0 FLIPS
+        </div>
+
+        <div id="debug">
+            Debug Off
+        </div>
+
+        <div id="controls">
+
+            <button id="scoreBtn">
+                🏆 High Scores
+            </button>
+
+            <button id="shareBtn">
+                📤 Share
+            </button>
+
+        </div>
+
+        <div id="scoreContainer">
+
+        </div>
+
     </div>
 
-    <button onclick="showScores()">
-        High Scores
-    </button>
+</div>
 
-    <button onclick="shareScore()">
-        Share Score
-    </button>
+<script>
 
-    <div id="scores"></div>
+let selectedDevice = null;
 
-    <script src="scores.js"></script>
-    <script src="sensor.js"></script>
+const iphoneBtn =
+    document.getElementById("iphoneBtn");
+
+const androidBtn =
+    document.getElementById("androidBtn");
+
+iphoneBtn.addEventListener("click", () => {
+
+    selectedDevice = "iphone";
+
+    document
+        .getElementById("deviceBox")
+        .classList.add("hidden");
+
+    document
+        .getElementById("gameBox")
+        .classList.remove("hidden");
+});
+
+androidBtn.addEventListener("click", () => {
+
+    selectedDevice = "android";
+
+    document
+        .getElementById("deviceBox")
+        .classList.add("hidden");
+
+    document
+        .getElementById("gameBox")
+        .classList.remove("hidden");
+});
+
+</script>
+
+<script src="scores.js"></script>
+<script src="sensor.js"></script>
 
 </body>
 </html>
