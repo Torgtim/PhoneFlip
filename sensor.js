@@ -1,189 +1,293 @@
+
+// =====================
+// SENSOR.JS v3 (FIXED)
+// =====================
+
 let tracking = false;
 
+// rotation
+let lastAlpha = null;
+let lastBeta = null;
+let lastGamma = null;
+
+let rotAlpha = 0;
+let rotBeta = 0;
+let rotGamma = 0;
+
+let activeAxis = "beta";
+let axisLocked = false;
+
+// motion state
 let wasThrown = false;
 let inAir = false;
-let catchCandidate = false;
 
-let totalRotation = 0;
-let lastAlpha = null;
-
-let stableFrames = 0;
 let airFrames = 0;
+let stableFrames = 0;
 
-const readyBtn =
-    document.getElementById("readyBtn");
+// catch logic (NEW SIMPLE SYSTEM)
+let catchCandidate = false;
+let maxImpact = 0;
 
-readyBtn.addEventListener(
-    "click",
-    startSensors
-);
+// debug
+let debugInterval = null;
 
-async function startSensors(){
+// UI
+const readyBtn = document.getElementById("readyBtn");
+const statusEl = document.getElementById("status");
+const resultEl = document.getElementById("result");
+const debugEl = document.getElementById("debug");
 
-    if(
-        typeof DeviceMotionEvent !==
-            "undefined" &&
-        typeof DeviceMotionEvent
-            .requestPermission ===
-            "function"
-    ){
+// =====================
+// START
+// =====================
 
-        const permission =
-            await DeviceMotionEvent
-                .requestPermission();
+readyBtn.addEventListener("click", startSensors);
 
-        if(permission !== "granted"){
-            alert("Sensors denied");
-            return;
+async function startSensors() {
+
+    try {
+
+        if (
+            typeof DeviceMotionEvent !== "undefined" &&
+            typeof DeviceMotionEvent.requestPermission === "function"
+        ) {
+            const permission =
+                await DeviceMotionEvent.requestPermission();
+
+            if (permission !== "granted") return;
         }
-    }
 
-    startChallenge();
+        startChallenge();
+
+    } catch (e) {
+        console.log(e);
+    }
 }
 
-function startChallenge(){
+function startChallenge() {
 
     tracking = true;
 
     wasThrown = false;
     inAir = false;
-    catchCandidate = false;
 
-    totalRotation = 0;
-    lastAlpha = null;
-
-    stableFrames = 0;
     airFrames = 0;
+    stableFrames = 0;
 
-    document.getElementById("status")
-        .innerHTML =
-        "🟢 READY - THROW NOW";
+    catchCandidate = false;
+    maxImpact = 0;
 
-    document.getElementById("result")
-        .innerHTML =
-        "Waiting...";
+    rotAlpha = rotBeta = rotGamma = 0;
+
+    lastAlpha = lastBeta = lastGamma = null;
+
+    axisLocked = false;
+    activeAxis = "beta";
+
+    readyBtn.classList.add("ready");
+
+    statusEl.innerHTML = "🟢 READY - THROW NOW!";
+    resultEl.innerHTML = "Waiting...";
+
+    startDebug();
 }
 
-window.addEventListener(
-    "deviceorientation",
-    (e)=>{
+// =====================
+// DEBUG
+// =====================
 
-        if(!tracking) return;
+function startDebug() {
 
-        if(lastAlpha !== null){
+    if (debugInterval) clearInterval(debugInterval);
 
-            let diff =
-                e.alpha - lastAlpha;
+    debugInterval = setInterval(() => {
 
-            if(diff > 180)
-                diff -= 360;
+        resultEl.innerHTML = `
+${getRotation().toFixed(0)}°<br>
+${Math.round(getFlips())} FLIPS
+        `;
 
-            if(diff < -180)
-                diff += 360;
+        debugEl.innerHTML = `
+Axis: ${activeAxis}<br>
+Air: ${inAir}<br>
+Impact: ${maxImpact.toFixed(1)}<br>
+Catch: ${catchCandidate}<br>
+AirFrames: ${airFrames}
+        `;
 
-            totalRotation +=
-                Math.abs(diff);
+    }, 100);
+}
+
+// =====================
+// ROTATION
+// =====================
+
+function addRotation(prev, curr) {
+
+    if (prev === null || curr === null) return 0;
+
+    let diff = curr - prev;
+
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+
+    return Math.abs(diff);
+}
+
+function getRotation() {
+
+    return activeAxis === "beta"
+        ? rotBeta
+        : activeAxis === "gamma"
+            ? rotGamma
+            : rotAlpha;
+}
+
+function getFlips() {
+    return getRotation() / 360;
+}
+
+// =====================
+// ORIENTATION
+// =====================
+
+window.addEventListener("deviceorientation", (e) => {
+
+    if (!tracking) return;
+
+    rotAlpha += addRotation(lastAlpha, e.alpha);
+    rotBeta  += addRotation(lastBeta, e.beta);
+    rotGamma += addRotation(lastGamma, e.gamma);
+
+    lastAlpha = e.alpha;
+    lastBeta = e.beta;
+    lastGamma = e.gamma;
+
+    // auto select best axis after throw
+    if (wasThrown && !axisLocked) {
+
+        if (rotBeta >= rotAlpha && rotBeta >= rotGamma) {
+            activeAxis = "beta";
+        } else if (rotGamma > rotAlpha) {
+            activeAxis = "gamma";
+        } else {
+            activeAxis = "alpha";
         }
 
-        lastAlpha = e.alpha;
+        axisLocked = true;
     }
-);
+});
 
-window.addEventListener(
-    "devicemotion",
-    (e)=>{
+// =====================
+// MOTION
+// =====================
 
-        if(!tracking) return;
+window.addEventListener("devicemotion", (e) => {
 
-        const a =
-            e.accelerationIncludingGravity;
+    if (!tracking) return;
 
-        const magnitude =
-            Math.sqrt(
-                a.x*a.x +
-                a.y*a.y +
-                a.z*a.z
-            );
+    const a = e.accelerationIncludingGravity;
+    if (!a) return;
 
-        // kast
-        if(magnitude > 18){
-            wasThrown = true;
+    const magnitude = Math.sqrt(
+        a.x * a.x +
+        a.y * a.y +
+        a.z * a.z
+    );
+
+    // track max impact (IMPORTANT for fail detection)
+    if (magnitude > maxImpact) {
+        maxImpact = magnitude;
+    }
+
+    // THROW detect
+    if (magnitude > 18) {
+        wasThrown = true;
+    }
+
+    // AIR detect
+    if (wasThrown && magnitude < 4) {
+        inAir = true;
+        airFrames++;
+    }
+
+    // ✅ NEW SIMPLE CATCH RULE
+    // (low acceleration after flight = hand catch)
+    if (
+        wasThrown &&
+        inAir &&
+        airFrames > 3 &&
+        magnitude < 7
+    ) {
+        catchCandidate = true;
+    }
+
+    // stabilize after catch
+    if (catchCandidate) {
+
+        if (magnitude < 10) {
+            stableFrames++;
+        } else {
+            stableFrames = 0;
         }
 
-        // flytur
-        if(
-            wasThrown &&
-            magnitude < 3
-        ){
-            inAir = true;
-            airFrames++;
-        }
-
-        // mulig catch
-        if(
-            wasThrown &&
-            inAir &&
-            airFrames > 3 &&
-            magnitude > 10
-        ){
-            catchCandidate = true;
-        }
-
-        // bekreft catch
-        if(catchCandidate){
-
-            if(magnitude < 12){
-                stableFrames++;
-            }
-            else{
-                stableFrames = 0;
-            }
-
-            if(stableFrames > 15){
-
-                tracking = false;
-
-                const flips =
-                    Math.round(
-                        totalRotation / 360
-                    );
-
-                if(
-                    flips >= 1 &&
-                    airFrames > 3
-                ){
-                    finishSuccess(flips);
-                }
-                else{
-                    finishFail();
-                }
-            }
+        if (stableFrames > 12) {
+            validateRun();
         }
     }
-);
+});
 
-function finishSuccess(flips){
+// =====================
+// VALIDATION
+// =====================
+
+function validateRun() {
+
+    tracking = false;
+
+    readyBtn.classList.remove("ready");
+
+    clearInterval(debugInterval);
+
+    const flips = Math.round(getFlips());
+
+    // FAIL: too hard impact (floor/sofa suspicion)
+    if (maxImpact > 35) {
+        finishFail("Too hard impact");
+        return;
+    }
+
+    // FAIL: no airtime
+    if (airFrames < 3) {
+        finishFail("No airtime");
+        return;
+    }
+
+    // FAIL: no flips
+    if (flips < 1) {
+        finishFail("No flips");
+        return;
+    }
+
+    finishSuccess(flips);
+}
+
+// =====================
+// RESULT
+// =====================
+
+function finishSuccess(flips) {
 
     currentScore = flips;
 
-    document.getElementById("result")
-        .innerHTML =
-        "🏆 " + flips + " FLIPS";
-
-    document.getElementById("status")
-        .innerHTML =
-        "SUCCESS";
+    resultEl.innerHTML = `🏆 ${flips} FLIPS`;
+    statusEl.innerHTML = "✅ SUCCESS";
 
     saveScore(flips);
 }
 
-function finishFail(){
+function finishFail(reason) {
 
-    document.getElementById("result")
-        .innerHTML =
-        "❌ FAILED";
-
-    document.getElementById("status")
-        .innerHTML =
-        "TRY AGAIN";
+    resultEl.innerHTML = "❌ FAILED";
+    statusEl.innerHTML = reason;
 }
