@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phone Flip Challenge</title>
+
+<style>
+body{
+    font-family:Arial,sans-serif;
+    text-align:center;
+    background:#111;
+    color:white;
+    margin:0;
+    padding:20px;
+}
+
+h1{
+    color:#00ff88;
+}
+
+button{
+    padding:15px 25px;
+    font-size:20px;
+    margin:10px;
+    border:none;
+    border-radius:12px;
+    cursor:pointer;
+}
+
+#readyBtn{
+    background:#555;
+    color:white;
+}
+
+.ready{
+    background:#00cc44 !important;
+}
+
+#result{
+    font-size:40px;
+    margin-top:20px;
+}
+
+#scores{
+    margin-top:20px;
+    text-align:left;
+    max-width:500px;
+    margin-left:auto;
+    margin-right:auto;
+}
+</style>
+</head>
+<body>
+
+<h1>📱 Phone Flip Challenge</h1>
+
+<button id="readyBtn">FLIP READY</button>
+<button onclick="showScores()">HIGH SCORES</button>
+<button onclick="shareScore()">SHARE</button>
+
+<div id="status">Press FLIP READY</div>
+<div id="result">0 Flips</div>
+
+<div id="scores"></div>
+
+<script>
+
+let tracking = false;
+let inAir = false;
+
+let totalRotation = 0;
+let lastAlpha = null;
+let currentScore = 0;
+
+const readyBtn = document.getElementById("readyBtn");
+
+readyBtn.addEventListener("click", async () => {
+
+    if (
+        typeof DeviceMotionEvent !== "undefined" &&
+        typeof DeviceMotionEvent.requestPermission === "function"
+    ) {
+        const permission =
+            await DeviceMotionEvent.requestPermission();
+
+        if(permission !== "granted"){
+            alert("Sensors not allowed");
+            return;
+        }
+    }
+
+    startChallenge();
+});
+
+function startChallenge(){
+
+    tracking = true;
+    inAir = false;
+
+    totalRotation = 0;
+    lastAlpha = null;
+
+    readyBtn.classList.add("ready");
+
+    document.getElementById("status").innerHTML =
+        "🟢 READY - THROW NOW!";
+}
+
+window.addEventListener("deviceorientation",(e)=>{
+
+    if(!tracking) return;
+
+    if(lastAlpha !== null){
+
+        let diff = e.alpha - lastAlpha;
+
+        if(diff > 180) diff -= 360;
+        if(diff < -180) diff += 360;
+
+        totalRotation += Math.abs(diff);
+    }
+
+    lastAlpha = e.alpha;
+});
+
+window.addEventListener("devicemotion",(e)=>{
+
+    if(!tracking) return;
+
+    const acc = e.accelerationIncludingGravity;
+
+    const magnitude = Math.sqrt(
+        acc.x*acc.x +
+        acc.y*acc.y +
+        acc.z*acc.z
+    );
+
+    if(magnitude < 3){
+        inAir = true;
+    }
+
+    if(inAir && magnitude > 18){
+
+        finishRun();
+    }
+});
+
+function finishRun(){
+
+    tracking = false;
+
+    currentScore =
+        Math.round(totalRotation / 360);
+
+    document.getElementById("result").innerHTML =
+        currentScore + " Flips";
+
+    document.getElementById("status").innerHTML =
+        "✅ Catch detected";
+
+    saveScore(currentScore);
+
+    readyBtn.classList.remove("ready");
+}
+
+function saveScore(score){
+
+    let scores =
+        JSON.parse(localStorage.getItem("flipScores")) || [];
+
+    scores.push({
+        flips: score,
+        date: new Date().toLocaleString()
+    });
+
+    scores.sort((a,b)=>b.flips-a.flips);
+
+    scores = scores.slice(0,10);
+
+    localStorage.setItem(
+        "flipScores",
+        JSON.stringify(scores)
+    );
+}
+
+function showScores(){
+
+    const scores =
+        JSON.parse(localStorage.getItem("flipScores")) || [];
+
+    let html = "<h2>🏆 Top 10</h2>";
+
+    scores.forEach((s,i)=>{
+        html += `
+        <p>
+        #${i+1}
+        - ${s.flips} flips
+        <br>
+        ${s.date}
+        </p>
+        `;
+    });
+
+    document.getElementById("scores").innerHTML = html;
+}
+
+async function shareScore(){
+
+    if(!navigator.share){
+        alert("Share not supported");
+        return;
+    }
+
+    try{
+        await navigator.share({
+            title:"Phone Flip Challenge",
+            text:`I got ${currentScore} flips!`,
+            url:location.href
+        });
+    }
+    catch(err){}
+}
+
+</script>
+
+</body>
+</html>
